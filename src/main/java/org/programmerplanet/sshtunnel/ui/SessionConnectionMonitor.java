@@ -1,9 +1,6 @@
 package org.programmerplanet.sshtunnel.ui;
 
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -25,9 +22,8 @@ public class SessionConnectionMonitor implements Runnable {
 
 	private final Object lock = new Object();
 	private Thread thread;
-	private Boolean threadStopped;
+	private volatile boolean threadStopped;
 	private int monitorInterval;
-	private Map<String, Session> sessions;
 	private SshTunnelComposite sshTunnelComposite;
 
 	public SessionConnectionMonitor() {
@@ -35,72 +31,38 @@ public class SessionConnectionMonitor implements Runnable {
 	}
 
 	public SessionConnectionMonitor(int monitorInterval) {
-		sessions = new ConcurrentHashMap<String, Session>();
 		threadStopped = false;
 		this.monitorInterval = monitorInterval;
-	}
-
-	public void addSession(String name, Session session) {
-		sessions.put(name, session);
-	}
-
-	public void removeSession(String name) {
-		sessions.remove(name);
 	}
 
 	public void run() {
 		if (log.isWarnEnabled()) {
 			log.warn("Connection monitor is now running..");
 		}
-		// synchronized (this) {
-		//boolean stopped = false;
 		while (!threadStopped) {
-		//while (!stopped) {
-			//log.info("Checking connections..");
-			//synchronized (lock) {
-			//	stopped = threadStopped;
-				
-			//	if (!stopped) {
-			boolean anyRemoved = false;
-			Iterator<Entry<String, Session>> it = sessions.entrySet().iterator();
-			while (it.hasNext()) {
-				Entry<String, Session> entry = it.next();
-				if (!ConnectionManager.getInstance().isConnected(entry.getValue())) {
-					ConnectionManager.getInstance().disconnect(entry.getValue());
-					if (log.isWarnEnabled()) {
-						log.warn("Session " + entry.getKey() + " has disconnected.");
-					}
-					if (sshTunnelComposite != null) {
-						final Session s = entry.getValue();
-						Display.getDefault().asyncExec(new Runnable() {
-							public void run() {
+			try {
+				// Checks every open connection, whether it was opened by Connect, Connect All or the tray menu
+				final List<Session> lostSessions = ConnectionManager.getInstance().closeDeadConnections();
+				if (sshTunnelComposite != null && !lostSessions.isEmpty()) {
+					Display.getDefault().asyncExec(new Runnable() {
+						public void run() {
+							for (Session s : lostSessions) {
 								sshTunnelComposite.showDisconnectedMessage(s);
+							}
+							sshTunnelComposite.connectionStatusChanged();
 						}
 					});
 				}
-				it.remove();
-				if (!anyRemoved)
-					anyRemoved = true;
-				}
+			} catch (RuntimeException e) {
+				// Keep the monitor running
+				log.error("Error while checking connections", e);
 			}
-			if (sshTunnelComposite != null && anyRemoved) {
-				// sshTunnelComposite.disconnect(entry.getValue());
-				Display.getDefault().asyncExec(new Runnable() {
-					public void run() {
-						sshTunnelComposite.connectionStatusChanged();
-					}
-				});
-			}
-				//}
-			//}
 			try {
 				Thread.sleep(monitorInterval);
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
 		}
-		// notifyAll();
-		// }
 	}
 	
 	public void setSshTunnelComposite(SshTunnelComposite sshTunnelComposite) {

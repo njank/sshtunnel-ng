@@ -525,8 +525,6 @@ public class SshTunnelComposite extends Composite {
 				public void run() {
 						try {
 						ConnectionManager.getInstance().connect(session, shell);
-						// Put to monitored list
-						SessionConnectionMonitor.getInstance().addSession(session.getSessionName(), session);
 					} catch (ConnectionException ce) {
 						try {
 							ConnectionManager.getInstance().disconnect(session);
@@ -593,9 +591,9 @@ public class SshTunnelComposite extends Composite {
 
 	private void disconnect(Session session) {
 		save();
-		if (session != null && ConnectionManager.getInstance().isConnected(session)) {
+		if (session != null) {
+			// Also when the connection has already died, so that its JSch session is not reused
 			ConnectionManager.getInstance().disconnect(session);
-			SessionConnectionMonitor.getInstance().removeSession(session.getSessionName());
 		}
 		connectionStatusChanged();
 	}
@@ -666,9 +664,7 @@ public class SshTunnelComposite extends Composite {
 		save();
 		for (Iterator<Session> i = configuration.getSessions().iterator(); i.hasNext();) {
 			Session session = i.next();
-			if (ConnectionManager.getInstance().isConnected(session)) {
-				ConnectionManager.getInstance().disconnect(session);
-			}
+			ConnectionManager.getInstance().disconnect(session);
 		}
 		connectionStatusChanged();
 	}
