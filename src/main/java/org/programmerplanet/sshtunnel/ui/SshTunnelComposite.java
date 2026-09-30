@@ -212,6 +212,7 @@ public class SshTunnelComposite extends Composite {
 			}
 
 			public void sessionRemoved(Session session) {
+				SessionConnectionMonitor.getInstance().cancelReconnect(session);
 				updateConnectButtons();
 			}
 
@@ -467,9 +468,11 @@ public class SshTunnelComposite extends Composite {
 
 	private void updateConnectButtons() {
 		connectButton.setEnabled(currentSession != null ? !ConnectionManager.getInstance().isConnected(currentSession) : false);
-		disconnectButton.setEnabled(currentSession != null ? ConnectionManager.getInstance().isConnected(currentSession) : false);
+		// Disconnect also stops the automatic reconnect of a lost session
+		disconnectButton.setEnabled(currentSession != null ? ConnectionManager.getInstance().isConnected(currentSession)
+				|| SessionConnectionMonitor.getInstance().isReconnecting(currentSession) : false);
 		connectAllButton.setEnabled(anyDisconnectedSessions());
-		disconnectAllButton.setEnabled(anyConnectedSessions());
+		disconnectAllButton.setEnabled(anyConnectedSessions() || SessionConnectionMonitor.getInstance().isReconnectingAny());
 	}
 
 	private boolean anyDisconnectedSessions() {
@@ -565,13 +568,25 @@ public class SshTunnelComposite extends Composite {
 //		messageBox.setMessage("Lost connection to " + session.getSessionName() + 
 //				" (" + session.getHostname() + ")");
 //		messageBox.open();
+		showTrayMessage(session, SWT.ICON_ERROR, "Connection to " + session.getHostname() + " has been lost. Reconnecting automatically...");
+	}
+
+	public void showReconnectedMessage(Session session) {
+		showTrayMessage(session, SWT.ICON_INFORMATION, "Connection to " + session.getHostname() + " has been restored.");
+	}
+
+	public void showReconnectFailedMessage(Session session, String reason) {
+		showTrayMessage(session, SWT.ICON_ERROR, "Stopped reconnecting to " + session.getHostname() + ": " + reason);
+	}
+
+	private void showTrayMessage(Session session, int icon, String message) {
 		if (trayItem != null && trayItem.getVisible()) {
-			ToolTip tip = new ToolTip(shell, SWT.BALLOON | SWT.ICON_ERROR);
+			ToolTip tip = new ToolTip(shell, SWT.BALLOON | icon);
 			//Rectangle trayRect = Display.getCurrent().getBounds();
 			//System.out.println(getLocation() + "," + trayRect);
 			//tip.setLocation(trayRect.width, trayRect.height-100);
 			tip.setText("Session: " + session.getSessionName());
-			tip.setMessage("Connection to "+ session.getHostname() + " has been lost.");
+			tip.setMessage(message);
 			trayItem.setToolTip(tip);
 			tip.setVisible(true);
 		}
@@ -592,6 +607,7 @@ public class SshTunnelComposite extends Composite {
 	private void disconnect(Session session) {
 		save();
 		if (session != null) {
+			SessionConnectionMonitor.getInstance().cancelReconnect(session);
 			// Also when the connection has already died, so that its JSch session is not reused
 			ConnectionManager.getInstance().disconnect(session);
 		}
@@ -664,6 +680,7 @@ public class SshTunnelComposite extends Composite {
 		save();
 		for (Iterator<Session> i = configuration.getSessions().iterator(); i.hasNext();) {
 			Session session = i.next();
+			SessionConnectionMonitor.getInstance().cancelReconnect(session);
 			ConnectionManager.getInstance().disconnect(session);
 		}
 		connectionStatusChanged();
